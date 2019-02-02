@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS 
 Requests a certificate from a Windows CA
 
@@ -32,7 +32,7 @@ The default value is "WebServer".
 
 .PARAMETER CAName
 Specifies the name of the CA to send the request to in the format FQDN\CAName
-If the CAName is not specified, then certutil -dump is used to retrieve a list of enterprise CAs.
+If the CAName is not specified, then the directory is queried for a list of enterprise CAs.
 If more than one is returned the user is prompted to choose an enterprise CA from the local Active Directory.
 
 .PARAMETER Export
@@ -127,13 +127,24 @@ test2.test.ch;DNS=test2san1.test.ch,DNS=test2san2.test.ch
 test3.test.ch;DNS=test3san1.test.ch,DNS=test3san2.test.ch
 		   
 .NOTES
+
+Version    : 1.4, 01/31/2019
+Changes    : 
+	Thanks to David Allsopp c/o dra27 on GitHub
+	- Better default for CAName so it is not needed when only one CA is available. 
+	- ProviderName specified in the request inf file
+	
 Version    : 1.3, 10/20/2018
-Changes    : Improvements in temp file handling, Additional parameter to specify the export path for pfx file, Requesting SAN certs with Extensions instead of Attributes
+Changes    :
+	- Improvements in temp file handling
+	- Additional parameter to specify the export path for pfx file
+	- Requesting SAN certs with Extensions instead of Attributes
+
 File Name  : Request-Certificate.ps1
 Requires   : PowerShell V2 or higher
 
 .LINK
-© Jonas Feller c/o J0F3, May 2011 / October 2018
+© Jonas Feller c/o J0F3, 2019
 www.jfe.cloud
 
 #>
@@ -266,9 +277,12 @@ CertificateTemplate = "$TemplateName"
         Write-Debug "CAName = $CAName"
             
         if (!$PSBoundParameters.ContainsKey('CAName')) {
-            $CAs = certutil -dump | Select-String 'Config:'
-            if (($CAs.Length -eq 1) -and ($CAs[0] -match '.*`(.*)''')) {
-                $CAName = $matches[1]
+            $rootDSE = [System.DirectoryServices.DirectoryEntry]'LDAP://RootDSE'
+            $searchBase = [System.DirectoryServices.DirectoryEntry]"LDAP://$($rootDSE.configurationNamingContext)"
+            $CAs = [System.DirectoryServices.DirectorySearcher]::new($searchBase,'objectClass=pKIEnrollmentService').FindAll()
+
+            if($CAs.Count -eq 1){
+                $CAName = "$($CAs[0].Properties.dnshostname)\$($CAs[0].Properties.cn)"
             }
             else {
                 $CAName = ""
